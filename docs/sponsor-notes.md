@@ -97,19 +97,36 @@ out — hit these exact gotchas once already, no need to re-discover them.
 ## Replay.io — QA layer for the console (P4)
 
 - Not a session-replay SDK we embed — it's **Replay QA**, an autonomous
-  testing agent: point it at a URL (or connect a GitHub repo) and it
-  explores the app, writes its own tests, records sessions, and files bug
-  reports with root cause + fix suggestions.
-- Revisit at P4 once the console has a live URL: "Test my app for free" (URL
-  mode, no account apparently required for a one-off check) or connect the
-  GitHub repo for continuous testing on every push/PR.
-- Access code `HACKATHON` mentioned on the event page — not yet needed since
-  we haven't started this integration; check it grants at signup if a paid
-  tier gate appears.
-- Killed the original plan-doc assumption that Replay is a generic
-  dashboard-streaming API — it isn't. The "best use of Replay" angle here is
+  testing agent: point it at a URL and it explores the app in a real
+  browser, discovers journeys, writes and runs its own tests, records
+  sessions, and files bug reports with root cause + fix suggestions.
+  Killed the original plan-doc assumption that Replay is a generic
+  dashboard-streaming API — it isn't. The "best use of Replay" here is
   literally using it to QA our own console, not to build the console with
   it.
+- **Localhost isn't supported yet.** `qa.replay.io/new?url=...` explicitly
+  says: *"Private sites aren't supported yet... Support for localhost and
+  private-network apps via a reverse proxy is coming soon."* A bare
+  `http://127.0.0.1:PORT` URL gets rejected outright — don't burn time
+  trying alternate localhost formats, it's a hard no on their end right now.
+- **Fix: expose the console over a quick tunnel.** `brew install
+  cloudflared` (no signup needed for a quick tunnel, unlike ngrok), then
+  `cloudflared tunnel --url http://127.0.0.1:8420` prints a public
+  `https://<random>.trycloudflare.com` URL in its stderr log within a few
+  seconds. Fed that straight into Replay QA's URL field and it worked
+  immediately. Keep the tunnel process alive for the duration of the QA run
+  — it's just a local process, no Cloudflare account required.
+- **Starting an actual QA run requires signing into Replay** (redirects to
+  their Auth0 login) — the "Skip signed-in areas" step in their own setup
+  flow is about *our* app's login, not theirs. Account creation isn't
+  something I do on the user's behalf, so this step needs a human.
+- Once running, it's genuinely exploring: discovered 3 real journeys on its
+  own (`Load the main page`, `Mobile Page Sweep`, `Run simulation and verify
+  results display`) and was observed actually interacting with page
+  controls (e.g. clicking the replay-speed selector) rather than just
+  loading the page once.
+- The `HACKATHON` access code mentioned on the event page was never
+  prompted for — the free tier covered this without it.
 
 ## Killed / benched (unchanged from the build plan)
 

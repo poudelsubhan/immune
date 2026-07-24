@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>IMMUNE — live console</title>
+<style>
+  :root {
+    --surface-0: #0d0d0d;
+    --surface-1: #1a1a19;
+    --surface-2: #232322;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --gridline: #2c2c2a;
+    --baseline: #383835;
+    --good: #0ca30c;
+    --critical: #d03b3b;
+    --warning: #fab219;
+    --neighbor: #3987e5; /* categorical slot 1, dark step — identifies Actian-blocked, not a severity */
+    --border: rgba(255, 255, 255, 0.10);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--surface-0); color: var(--text-primary);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+    overflow-x: hidden;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 24px 60px; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+  h1 { font-size: 22px; letter-spacing: 0.04em; margin: 0; }
+  h1 .dot { color: var(--critical); }
+  .thesis { color: var(--text-secondary); font-size: 12.5px; margin: 2px 0 20px; max-width: 780px; line-height: 1.5; }
+
+  .hero {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 20px 10px; margin-bottom: 16px;
+  }
+  .hero-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .hero-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .hero-value { font-size: 15px; color: var(--text-secondary); }
+  .hero-value b { color: var(--text-primary); font-size: 22px; }
+  svg { display: block; }
+  .asr-line { fill: none; stroke: var(--critical); stroke-width: 2.5; }
+  .asr-area { fill: var(--critical); opacity: 0.06; }
+  .asr-point { stroke: var(--surface-1); stroke-width: 2; }
+  .asr-gridline { stroke: var(--gridline); stroke-width: 1; }
+  .asr-axis-label { fill: var(--text-muted); font-size: 10px; font-family: inherit; }
+
+  .row { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 16px; }
+  .timeline { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tile {
+    width: 76px; height: 66px; border-radius: 8px; border: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 11px; gap: 4px; opacity: 0; transform: translateY(6px) scale(0.92);
+    animation: tile-in 0.35s ease forwards;
+  }
+  @keyframes tile-in { to { opacity: 1; transform: translateY(0) scale(1); } }
+  .tile .gen { color: var(--text-muted); font-size: 9.5px; }
+  .tile .state { font-size: 9.5px; text-align: center; line-height: 1.25; padding: 0 4px; }
+  .tile.breach { background: rgba(208, 59, 59, 0.16); border-color: rgba(208, 59, 59, 0.5); }
+  .tile.breach .state { color: var(--critical); }
+  .tile.blocked { background: rgba(12, 163, 12, 0.12); border-color: rgba(12, 163, 12, 0.4); }
+  .tile.blocked .state { color: var(--good); }
+  .tile.neighbor { background: rgba(57, 135, 229, 0.14); border-color: rgba(57, 135, 229, 0.45); }
+  .tile.neighbor .state { color: var(--neighbor); }
+
+  .cols { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 0 0 10px; }
+
+  .antibody { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+    opacity: 0; animation: card-in 0.4s ease forwards; }
+  @keyframes card-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .antibody .sig { color: var(--text-primary); font-size: 12.5px; font-weight: 600; }
+  .antibody .patch { color: var(--text-secondary); font-size: 11.5px; margin-top: 2px; }
+  .antibody .gates { display: flex; gap: 12px; margin-top: 8px; font-size: 11px; }
+  .antibody .gate-pass { color: var(--good); }
+  .antibody .senso { color: var(--text-muted); font-size: 10.5px; margin-top: 6px; }
+
+  .mesh { display: flex; align-items: center; justify-content: space-between; padding: 14px 4px 6px; }
+  .node { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 10.5px; color: var(--text-muted); }
+  .node .dot { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--baseline); background: var(--surface-2);
+    display: flex; align-items: center; justify-content: center; font-size: 13px; transition: all 0.25s ease; }
+  .node.active .dot { border-color: var(--neighbor); box-shadow: 0 0 14px rgba(57,135,229,0.6); background: rgba(57,135,229,0.15); }
+  .node.active { color: var(--text-primary); }
+  .edge { flex: 1; height: 2px; background: var(--baseline); margin: 0 4px; position: relative; top: -12px; transition: background 0.25s ease; }
+  .edge.active { background: var(--neighbor); box-shadow: 0 0 6px rgba(57,135,229,0.6); }
+
+  .log { margin-top: 16px; }
+  .log-body { height: 130px; overflow-y: auto; font-size: 10.5px; color: var(--text-muted); line-height: 1.6; }
+  .log-line { white-space: nowrap; }
+  .log-line b { color: var(--text-secondary); }
+
+  .flash {
+    position: fixed; inset: 0; background: var(--critical); opacity: 0; pointer-events: none; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .flash.on { animation: flash-pulse 1.1s ease; }
+  @keyframes flash-pulse { 0% { opacity: 0; } 12% { opacity: 0.55; } 100% { opacity: 0; } }
+  .flash-text {
+    font-size: 40px; font-weight: 700; letter-spacing: 0.08em; color: #fff; opacity: 0;
+  }
+  .flash.on .flash-text { animation: text-pulse 1.1s ease; }
+  @keyframes text-pulse { 0% { opacity: 0; } 15% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+
+  .empty { color: var(--text-muted); font-size: 11.5px; padding: 10px 2px; }
+  .speed { color: var(--text-muted); font-size: 10.5px; }
+  .speed select { background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; font: inherit; padding: 2px 4px; }
+</style>
+</head>
+<body data-theme="dark">
+<div class="flash" id="flash"><div class="flash-text">SENSITIVE ACTION FIRED</div></div>
+
+<div class="wrap">
+  <header>
+    <h1>IMMUNE<span class="dot">.</span></h1>
+    <div class="speed">replay speed <select id="speed"><option value="900">1×</option><option value="450" selected>2×</option><option value="180">5×</option><option value="0">instant</option></select></div>
+  </header>
+  <div class="thesis">Prompt injection is the number one reason enterprises won't give agents write-access. Every defense today is static. Immune is closed-loop: it detects a novel attack, patches itself, and verifies the patch — no human in the loop.</div>
+
+  <div class="hero">
+    <div class="hero-head">
+      <div class="hero-label">Attack success rate — cumulative, per generation</div>
+      <div class="hero-value">latest: <b id="asrLatest">—</b></div>
+    </div>
+    <svg id="asrChart" width="100%" height="180" viewBox="0 0 1100 180" preserveAspectRatio="none"></svg>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <h2>Generation timeline</h2>
+      <div class="timeline" id="timeline"><div class="empty">waiting for the run to start…</div></div>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <h2>Antibody feed — synthesized, gated, promoted</h2>
+      <div id="antibodies"><div class="empty">no antibodies promoted yet</div></div>
+    </div>
+    <div class="panel">
+      <h2>Mesh — attacker → defender → peer</h2>
+      <div class="mesh">
+        <div class="node" id="node-attacker"><div class="dot">⚔</div>attacker</div>
+        <div class="edge" id="edge-a-d"></div>
+        <div class="node" id="node-defender"><div class="dot">◈</div>defender</div>
+        <div class="edge" id="edge-d-p"></div>
+        <div class="node" id="node-peer"><div class="dot">✓</div>peer</div>
+      </div>
+      <div class="log">
+        <h2>Raw event log</h2>
+        <div class="log-body" id="logBody"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const state = {
+  allEvents: [],      // full fetched array from the server, grows on live runs
+  revealed: 0,         // how many of allEvents have been played into the UI
+  generations: [],      // [{generation, breached, blocked_by, family}]
+  breachesSoFar: 0,
+};
+
+const el = {
+  timeline: document.getElementById('timeline'),
+  antibodies: document.getElementById('antibodies'),
+  logBody: document.getElementById('logBody'),
+  flash: document.getElementById('flash'),
+  asrLatest: document.getElementById('asrLatest'),
+  speed: document.getElementById('speed'),
+};
+
+function fmtGate(pass) { return pass ? '✓' : '✗'; }
+
+function pushLog(evt) {
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  const t = new Date(evt.ts).toLocaleTimeString();
+  line.innerHTML = `<span>${t}</span> <b>${evt.type}</b> ${evt.generation != null ? 'gen' + evt.generation : ''}`;
+  el.logBody.appendChild(line);
+  el.logBody.scrollTop = el.logBody.scrollHeight;
+  while (el.logBody.children.length > 200) el.logBody.removeChild(el.logBody.firstChild);
+}
+
+function pulseEdge(id) {
+  const edge = document.getElementById(id);
+  edge.classList.add('active');
+  setTimeout(() => edge.classList.remove('active'), 1400);
+}
+function pulseNode(id) {
+  const node = document.getElementById(id);
+  node.classList.add('active');
+  setTimeout(() => node.classList.remove('active'), 1400);
+}
+
+function flashBreach() {
+  el.flash.classList.remove('on');
+  void el.flash.offsetWidth; // restart animation
+  el.flash.classList.add('on');
+}
+
+function addTile(gen) {
+  if (el.timeline.querySelector('.empty')) el.timeline.innerHTML = '';
+  const tile = document.createElement('div');
+  const neighborBlocked = (gen.blocked_by || '').startsWith('actian_neighbor');
+  const cls = gen.breached ? 'breach' : (neighborBlocked ? 'neighbor' : 'blocked');
+  tile.className = `tile ${cls}`;
+  const stateText = gen.breached ? 'BREACH' : (neighborBlocked ? 'neighbor\nmatch' : 'blocked');
+  tile.innerHTML = `<div class="gen">gen ${gen.generation}</div><div class="state">${stateText}</div>`;
+  el.timeline.appendChild(tile);
+}
+
+function addAntibody(data) {
+  if (el.antibodies.querySelector('.empty')) el.antibodies.innerHTML = '';
+  const card = document.createElement('div');
+  card.className = 'antibody';
+  const senso = data.senso || {};
+  card.innerHTML = `
+    <div class="sig">${data.signature}</div>
+    <div class="patch">${(data.patch && data.patch.name) || ''} — ${(data.patch && data.patch.rationale) ? data.patch.rationale.slice(0, 140) + ((data.patch.rationale.length > 140) ? '…' : '') : ''}</div>
+    <div class="gates"><span class="gate-pass">${fmtGate(true)} attack replay blocked</span><span class="gate-pass">${fmtGate(true)} benign suite passed</span></div>
+    <div class="senso">senso node ${senso.node_id || '—'} · v${senso.version != null ? senso.version : '—'} · ${senso.live ? 'live' : 'local fallback'}</div>
+  `;
+  el.antibodies.prepend(card);
+}
+
+function renderASR() {
+  const svg = document.getElementById('asrChart');
+  const W = 1100, H = 180, padL = 34, padR = 16, padT = 14, padB = 26;
+  const gens = state.generations;
+  svg.innerHTML = '';
+  if (gens.length === 0) return;
+
+  const n = gens.length;
+  const xStep = n > 1 ? (W - padL - padR) / (n - 1) : 0;
+  const x = i => padL + i * xStep;
+  const y = v => padT + (1 - v) * (H - padT - padB);
+
+  // gridlines at 0/50/100%
+  [0, 0.5, 1].forEach(v => {
+    const gy = y(v);
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', padL); line.setAttribute('x2', W - padR);
+    line.setAttribute('y1', gy); line.setAttribute('y2', gy);
+    line.setAttribute('class', 'asr-gridline');
+    svg.appendChild(line);
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', 6); label.setAttribute('y', gy + 3);
+    label.setAttribute('class', 'asr-axis-label');
+    label.textContent = Math.round(v * 100) + '%';
+    svg.appendChild(label);
+  });
+
+  let breaches = 0;
+  const points = gens.map((g, i) => {
+    if (g.breached) breaches++;
+    return { x: x(i), y: y(breaches / (i + 1)), v: breaches / (i + 1), gen: g };
+  });
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const areaPath = linePath + ` L ${points[points.length - 1].x} ${y(0)} L ${points[0].x} ${y(0)} Z`;
+
+  const area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  area.setAttribute('d', areaPath); area.setAttribute('class', 'asr-area');
+  svg.appendChild(area);
+
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  line.setAttribute('d', linePath); line.setAttribute('class', 'asr-line');
+  svg.appendChild(line);
+
+  points.forEach(p => {
+    const neighborBlocked = (p.gen.blocked_by || '').startsWith('actian_neighbor');
+    const color = p.gen.breached ? 'var(--critical)' : (neighborBlocked ? 'var(--neighbor)' : 'var(--good)');
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', 5);
+    c.setAttribute('class', 'asr-point'); c.setAttribute('fill', color);
+    svg.appendChild(c);
+    const gx = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    gx.setAttribute('x', p.x); gx.setAttribute('y', H - 8);
+    gx.setAttribute('class', 'asr-axis-label'); gx.setAttribute('text-anchor', 'middle');
+    gx.textContent = 'gen ' + p.gen.generation;
+    svg.appendChild(gx);
+  });
+
+  el.asrLatest.textContent = Math.round(points[points.length - 1].v * 100) + '%';
+}
+
+function applyEvent(evt) {
+  pushLog(evt);
+  switch (evt.type) {
+    case 'injection':
+      pulseEdge('edge-a-d'); pulseNode('node-attacker'); pulseNode('node-defender');
+      break;
+    case 'breach_detected':
+      flashBreach();
+      break;
+    case 'generation_end':
+      state.generations.push(evt.data);
+      addTile(evt.data);
+      renderASR();
+      break;
+    case 'antibody_promoted':
+      addAntibody(evt.data);
+      break;
+    case 'quarantine_broadcast':
+      pulseEdge('edge-d-p'); pulseNode('node-defender');
+      break;
+    case 'peer_immunized':
+      pulseNode('node-peer');
+      break;
+  }
+}
+
+function tick() {
+  const delay = parseInt(el.speed.value, 10);
+  if (state.revealed < state.allEvents.length) {
+    applyEvent(state.allEvents[state.revealed]);
+    state.revealed++;
+    setTimeout(tick, delay);
+  } else {
+    setTimeout(tick, 500); // idle-poll pace once caught up, in case the file is still growing
+  }
+}
+
+async function poll() {
+  try {
+    const resp = await fetch('/api/events', { cache: 'no-store' });
+    const events = await resp.json();
+    state.allEvents = events;
+  } catch (e) { /* server not up yet, or file mid-write — just retry next poll */ }
+  setTimeout(poll, 1000);
+}
+
+poll();
+tick();
+</script>
+</body>
+</html>

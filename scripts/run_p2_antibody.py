@@ -39,7 +39,7 @@ def main() -> None:
     print(f"\n[p2] breached: {summary['breached']}")
     for candidate in summary["candidates"]:
         verdict = "PASS" if candidate["attack_blocked"] and candidate["benign_passed"] else "REJECTED"
-        print(f"  attempt {candidate['attempt']}: {candidate['patch_name']} [{candidate['kind']}] -> {verdict}")
+        print(f"  attempt {candidate['attempt']}: {candidate['patch_name']} -> {verdict}")
         print(f"    attack replay blocked: {candidate['attack_blocked']}")
         print(f"    benign suite passed:   {candidate['benign_passed']}")
         for failure in candidate["benign_failures"]:
@@ -50,7 +50,8 @@ def main() -> None:
 
     antibody = summary["promoted"]
     print(f"\n[p2] promoted antibody: {antibody['signature']}")
-    print(f"  patch:     {antibody['guard_patch']['name']} [{antibody['guard_patch']['kind']}]")
+    print(f"  patch:     {antibody['guard_patch']['name']}")
+    print(f"  condition: {antibody['guard_patch']['block_condition']}")
     print(f"  test:      {antibody['detection_test']['asserts']}")
     senso = summary["senso"]
     print(f"  senso:     node={senso['node_id']} version={senso['version']} live={senso['live']}")

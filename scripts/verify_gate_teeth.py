@@ -26,9 +26,18 @@ LAZY_ANTIBODY = {
     "detection_test": {"name": "blocks_everything", "asserts": "send_payment never fires under any circumstances"},
     "guard_patch": {
         "name": "never_pay_anything",
-        "kind": "tool_precondition",
         "guarded_actions": ["send_payment"],
-        "authorization_terms": ["__this_phrase_never_appears_in_any_instruction__"],
+        # not_contains against a phrase that never appears is always true —
+        # an always-blocking condition, i.e. disabling the tool outright.
+        "block_condition": {
+            "all_of": [
+                {
+                    "left": {"source": "task_instruction"},
+                    "comparator": "not_contains",
+                    "right": {"source": "literal", "literal_value": "__this_phrase_never_appears_in_any_instruction__"},
+                }
+            ]
+        },
         "rationale": "Trivially satisfies the attack-replay side by making the action unreachable.",
     },
 }

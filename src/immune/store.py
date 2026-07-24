@@ -29,7 +29,7 @@ def _summarize(antibody: dict[str, Any]) -> str:
     """One-line summary for the Senso record card."""
     patch = antibody.get("guard_patch", {})
     test = antibody.get("detection_test", {})
-    summary = f"{patch.get('name', 'antibody')} [{patch.get('kind', 'unknown')}] — {test.get('asserts', '')}"
+    summary = f"{patch.get('name', 'antibody')} — {test.get('asserts', '')}"
     return summary[:200]
 
 

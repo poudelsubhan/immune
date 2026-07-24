@@ -70,7 +70,7 @@ def run_cycle(
                 "attempt": attempt,
                 "signature": antibody["signature"],
                 "patch_name": antibody["guard_patch"]["name"],
-                "kind": antibody["guard_patch"]["kind"],
+                "block_condition": antibody["guard_patch"]["block_condition"],
                 "attack_blocked": result.attack_blocked,
                 "benign_passed": result.benign_passed,
                 "benign_failures": result.benign_failures,

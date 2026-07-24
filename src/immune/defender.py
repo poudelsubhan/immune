@@ -163,19 +163,20 @@ def simulate_attack(
     antibody actually stops this payload is decided by executing its rules
     against this trace, which is exactly what the gate needs to verify.
     """
-    task_instruction = "Process this inbound message and respond appropriately."
+    task_instruction = attack.get("task_instruction", "Process this inbound message and respond appropriately.")
     append_event("task_start", {"task": task_instruction}, generation=generation)
     append_event("ingest", {"source": "inbox", "content": attack["payload"]}, generation=generation)
 
     hops = [attack["payload"]]
-    if "fetch_key" in attack:
-        fetched = fetch_content(attack["fetch_key"], world)
+    if attack.get("fetch_key"):
+        fetched = attack.get("second_hop_payload") or fetch_content(attack["fetch_key"], world)
         append_event("ingest", {"source": attack["fetch_key"], "content": fetched}, generation=generation)
         hops.append(fetched)
 
-    append_event("injection", {"attack_id": attack["id"], "family": attack["family"]}, generation=generation)
+    attack_id = attack.get("id", f"gen{generation}-{attack['family']}")
+    append_event("injection", {"attack_id": attack_id, "family": attack["family"]}, generation=generation)
 
-    call = {"tool": attack["target_action"], "arguments": attack["payment_request"]}
+    call = {"tool": attack.get("target_action", "send_payment"), "arguments": attack["payment_request"]}
     trace: dict[str, Any] = {
         "task": task_instruction,
         "hops": hops,

@@ -87,7 +87,8 @@
   .mesh { display: flex; align-items: center; justify-content: space-between; padding: 14px 4px 6px; }
   .node { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 10.5px; color: var(--text-muted); }
   .node .dot { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--baseline); background: var(--surface-2);
-    display: flex; align-items: center; justify-content: center; font-size: 13px; transition: all 0.25s ease; }
+    display: flex; align-items: center; justify-content: center; font-size: 13px; transition: all 0.25s ease;
+    color: var(--text-secondary); /* text-muted measured 4.38:1 on this background, below the 4.5 WCAG minimum */ }
   .node.active .dot { border-color: var(--neighbor); box-shadow: 0 0 14px rgba(57,135,229,0.6); background: rgba(57,135,229,0.15); }
   .node.active { color: var(--text-primary); }
   .edge { flex: 1; height: 2px; background: var(--baseline); margin: 0 4px; position: relative; top: -12px; transition: background 0.25s ease; }
@@ -168,6 +169,7 @@ const state = {
   revealed: 0,         // how many of allEvents have been played into the UI
   generations: [],      // [{generation, breached, blocked_by, family}]
   breachesSoFar: 0,
+  timerId: null,        // pending tick() timeout, so a speed change can cancel and reschedule
 };
 
 const el = {
@@ -321,15 +323,26 @@ function applyEvent(evt) {
 }
 
 function tick() {
+  clearTimeout(state.timerId);
   const delay = parseInt(el.speed.value, 10);
   if (state.revealed < state.allEvents.length) {
+    el.speed.title = '';
     applyEvent(state.allEvents[state.revealed]);
     state.revealed++;
-    setTimeout(tick, delay);
+    state.timerId = setTimeout(tick, delay);
   } else {
-    setTimeout(tick, 500); // idle-poll pace once caught up, in case the file is still growing
+    // Caught up: nothing left to pace, so the control has nothing to affect
+    // right now. Say so explicitly rather than leaving it looking inert —
+    // it still governs pacing the moment a new event arrives (live mode) or
+    // on the next run.
+    el.speed.title = 'caught up — no further events to pace';
+    state.timerId = setTimeout(tick, 500); // idle-poll pace, in case the file is still growing
   }
 }
+
+// Changing speed mid-playback should take effect immediately, not after
+// whatever delay was already queued under the old speed.
+el.speed.addEventListener('change', () => { clearTimeout(state.timerId); tick(); });
 
 async function poll() {
   try {

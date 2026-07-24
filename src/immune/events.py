@@ -28,6 +28,7 @@ EVENT_TYPES = {
     "injection",
     "sensitive_action_fired",
     "breach_detected",
+    "action_blocked",
     "synthesis_start",
     "antibody_candidate",
     "gate_attack_replay",

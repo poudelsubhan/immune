@@ -19,19 +19,32 @@ from typing import Any
 
 import requests
 
-SENSO_BASE_URL = os.environ.get("SENSO_BASE_URL", "https://apiv2.senso.ai/api/v1")
-SENSO_API_KEY = os.environ.get("SENSO_API_KEY")
-SENSO_KB_FOLDER_ID = os.environ.get("SENSO_KB_FOLDER_ID")  # optional; None = org root
+DEFAULT_BASE_URL = "https://apiv2.senso.ai/api/v1"
 
 _INDEX_PATH = Path(os.environ.get("IMMUNE_STORE_INDEX", "data/senso_index.json"))
 _FALLBACK_PATH = Path(os.environ.get("IMMUNE_STORE_FALLBACK", "data/senso_fallback.json"))
 
 
+def _summarize(antibody: dict[str, Any]) -> str:
+    """One-line summary for the Senso record card."""
+    patch = antibody.get("guard_patch", {})
+    test = antibody.get("detection_test", {})
+    summary = f"{patch.get('name', 'antibody')} [{patch.get('kind', 'unknown')}] — {test.get('asserts', '')}"
+    return summary[:200]
+
+
 class AntibodyStore:
-    """3 methods: promote, get, search. Everything else is Senso's problem."""
+    """3 methods: promote, get, search. Everything else is Senso's problem.
+
+    Credentials are read at construction, not import — callers load .env at
+    runtime, which happens after this module is imported.
+    """
 
     def __init__(self) -> None:
-        self.live = bool(SENSO_API_KEY)
+        self.base_url = os.environ.get("SENSO_BASE_URL", DEFAULT_BASE_URL)
+        self.api_key = os.environ.get("SENSO_API_KEY")
+        self.kb_folder_id = os.environ.get("SENSO_KB_FOLDER_ID")  # optional; None = org root
+        self.live = bool(self.api_key)
         self._index: dict[str, str] = self._load_json(_INDEX_PATH, default={})
         self._fallback: dict[str, list[dict]] = self._load_json(_FALLBACK_PATH, default={})
 
@@ -46,14 +59,14 @@ class AntibodyStore:
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def _headers(self) -> dict[str, str]:
-        return {"X-API-Key": SENSO_API_KEY or "", "Content-Type": "application/json"}
+        return {"X-API-Key": self.api_key or "", "Content-Type": "application/json"}
 
     def _resolve_kb_node_id(self, content_id: str) -> str:
         """POST /org/kb/raw only returns the content id; node-scoped endpoints
         (GET/PUT/PATCH .../nodes/{id}/...) need the wrapper kb_node_id, which
         only appears in the my-files/children listing. Look it up once here.
         """
-        resp = requests.get(f"{SENSO_BASE_URL}/org/kb/my-files", headers=self._headers(), timeout=10)
+        resp = requests.get(f"{self.base_url}/org/kb/my-files", headers=self._headers(), timeout=10)
         resp.raise_for_status()
         for node in resp.json().get("nodes", []):
             if node.get("content_id") == content_id:
@@ -72,12 +85,12 @@ class AntibodyStore:
                 if node_id is None:
                     payload = {
                         "title": f"antibody:{signature}",
-                        "summary": antibody.get("detection_test", "")[:200],
+                        "summary": _summarize(antibody),
                         "text": body_text,
                     }
-                    if SENSO_KB_FOLDER_ID:
-                        payload["kb_folder_node_id"] = SENSO_KB_FOLDER_ID
-                    resp = requests.post(f"{SENSO_BASE_URL}/org/kb/raw", headers=self._headers(), json=payload, timeout=10)
+                    if self.kb_folder_id:
+                        payload["kb_folder_node_id"] = self.kb_folder_id
+                    resp = requests.post(f"{self.base_url}/org/kb/raw", headers=self._headers(), json=payload, timeout=10)
                     resp.raise_for_status()
                     # POST returns the content id; node ops need the wrapper kb_node_id,
                     # which only shows up via the my-files/children listing.
@@ -88,7 +101,7 @@ class AntibodyStore:
                     version = 1
                 else:
                     resp = requests.put(
-                        f"{SENSO_BASE_URL}/org/kb/nodes/{node_id}/raw",
+                        f"{self.base_url}/org/kb/nodes/{node_id}/raw",
                         headers=self._headers(),
                         json={"title": f"antibody:{signature}", "text": body_text},
                         timeout=10,
@@ -96,21 +109,35 @@ class AntibodyStore:
                     resp.raise_for_status()
                     version = resp.json().get("version_num", "unknown")
                 return {"node_id": node_id, "version": version, "live": True}
-            except requests.RequestException:
-                pass  # fall through to local fallback — never let a sponsor outage kill the loop
+            except Exception as exc:  # noqa: BLE001 — never let a sponsor outage kill the loop
+                # Falling back is fine; falling back *silently* is not. A run
+                # that believes it promoted to Senso when it didn't is a
+                # demo that lies, so the reason travels with the record.
+                fallback_reason = f"{type(exc).__name__}: {exc}"
+                if isinstance(exc, requests.HTTPError) and exc.response is not None:
+                    fallback_reason += f" | {exc.response.text[:200]}"
+            else:
+                fallback_reason = None
+        else:
+            fallback_reason = "no SENSO_API_KEY"
 
         history = self._fallback.setdefault(signature, [])
         version = len(history) + 1
         history.append(antibody)
         self._save_json(_FALLBACK_PATH, self._fallback)
-        return {"node_id": f"local:{signature}", "version": version, "live": False}
+        return {
+            "node_id": f"local:{signature}",
+            "version": version,
+            "live": False,
+            "fallback_reason": fallback_reason,
+        }
 
     def get(self, signature: str, version: int | None = None) -> dict[str, Any] | None:
         if self.live and signature in self._index:
             node_id = self._index[signature]
             params = {"version": version} if version else {}
             try:
-                resp = requests.get(f"{SENSO_BASE_URL}/org/kb/nodes/{node_id}/content", headers=self._headers(), params=params, timeout=10)
+                resp = requests.get(f"{self.base_url}/org/kb/nodes/{node_id}/content", headers=self._headers(), params=params, timeout=10)
                 resp.raise_for_status()
                 return json.loads(resp.json()["text"])
             except (requests.RequestException, KeyError, json.JSONDecodeError):
@@ -125,7 +152,7 @@ class AntibodyStore:
     def search(self, query: str) -> list[dict[str, Any]]:
         if self.live:
             try:
-                resp = requests.post(f"{SENSO_BASE_URL}/org/search", headers=self._headers(), json={"query": query}, timeout=10)
+                resp = requests.post(f"{self.base_url}/org/search", headers=self._headers(), json={"query": query}, timeout=10)
                 resp.raise_for_status()
                 return resp.json().get("results", [])
             except requests.RequestException:

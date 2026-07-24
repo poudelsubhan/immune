@@ -1,11 +1,10 @@
 """LLM call harness for the defender/attacker agents-under-test.
 
 These agents are NOT this Claude Code session — they're the system being
-built and attacked. We shell out to the already-authenticated `claude` CLI
-in headless, schema-constrained mode so no separate API key is needed.
-`--tools ""` strips all of Claude Code's native tools (Bash, Edit, Read,
-...); the only "tools" the defender/attacker have are the ones we define
-ourselves in tools.py, expressed as an enum in the JSON schema below and
+built and attacked. We shell out to the `claude` CLI in headless,
+schema-constrained mode. `--tools ""` strips all of Claude Code's native
+tools (Bash, Edit, Read, ...); the only "tools" the agents have are the ones
+we define ourselves in tools.py, expressed in the response schema and
 executed by our own code after the call returns.
 
 Every call is wrapped in @disk_cache (invariant #2): replay is instant and
@@ -15,12 +14,14 @@ deterministic, and a live demo never re-runs inference on stage.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 
 from .cache import disk_cache
 
 DEFAULT_MODEL = "sonnet"
 
+#: Schema for an agent-under-test's turn: reason, optionally call tools, respond.
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -43,11 +44,29 @@ RESPONSE_SCHEMA = {
 }
 
 
-@disk_cache
-def call_agent_llm(system_prompt: str, user_prompt: str, *, model: str = DEFAULT_MODEL) -> dict:
-    """One structured-output call to the agent-under-test's reasoning model.
+def _auth_flags() -> list[str]:
+    """Prefer --bare when an API key is available: it skips hooks, plugins,
+    and CLAUDE.md discovery entirely, so the agent-under-test's context is
+    exactly what we hand it. Without a key the CLI falls back to this
+    session's OAuth, where hooks must be suppressed explicitly — otherwise
+    the subprocess inherits our own hooks and their reminders bleed into the
+    agent's reasoning.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return ["--bare"]
+    return ["--settings", '{"hooks":{}}']
 
-    Returns {"reasoning": str, "tool_calls": [{"tool", "arguments"}...], "final_response": str}.
+
+@disk_cache
+def call_agent_llm(
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    model: str = DEFAULT_MODEL,
+    schema: dict | None = None,
+) -> dict:
+    """One structured-output call. Returns the validated object matching
+    `schema` (defaults to RESPONSE_SCHEMA).
     """
     cmd = [
         "claude",
@@ -56,21 +75,16 @@ def call_agent_llm(system_prompt: str, user_prompt: str, *, model: str = DEFAULT
         "--output-format",
         "json",
         "--json-schema",
-        json.dumps(RESPONSE_SCHEMA),
+        json.dumps(schema or RESPONSE_SCHEMA),
         "--tools",
         "",
         "--model",
         model,
         "--system-prompt",
         system_prompt,
-        # Without --bare (which needs an ANTHROPIC_API_KEY we don't have), this
-        # subprocess otherwise inherits this very session's hooks — including
-        # the UserPromptSubmit nudge toward the Zero skill — bleeding
-        # irrelevant meta-content into the agent-under-test's reasoning.
-        "--settings",
-        '{"hooks":{}}',
+        *_auth_flags(),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     if proc.returncode != 0:
         raise RuntimeError(f"claude CLI failed (exit {proc.returncode}): {proc.stderr[:2000]}")
 

@@ -27,6 +27,7 @@ def run_cycle(
     *,
     promoted: list[dict[str, Any]] | None = None,
     generation: int = 1,
+    variant_of: str | None = None,
 ) -> dict[str, Any]:
     """Run one attack through the loop.
 
@@ -53,7 +54,9 @@ def run_cycle(
     prior_failure: str | None = None
 
     for attempt in range(1, MAX_SYNTHESIS_ATTEMPTS + 1):
-        antibody = synthesize(breach, attack, prior_failure=prior_failure)
+        antibody = synthesize(
+            breach, attack, prior_failure=prior_failure, attempt=attempt, variant_of=variant_of
+        )
         append_event(
             "antibody_candidate",
             {
@@ -74,6 +77,9 @@ def run_cycle(
                 "patch_name": antibody["guard_patch"]["name"],
                 "block_condition": antibody["guard_patch"]["block_condition"],
                 "attack_blocked": result.attack_blocked,
+                "mutations_blocked": result.mutations_blocked,
+                "mutations_tested": result.mutations_tested,
+                "mutation_failures": result.mutation_failures,
                 "benign_passed": result.benign_passed,
                 "benign_failures": result.benign_failures,
             }
@@ -88,6 +94,13 @@ def run_cycle(
                     "patch": antibody["guard_patch"],
                     "senso": record,
                     "attempts": attempt,
+                    "gate": {
+                        "attack_blocked": result.attack_blocked,
+                        "mutations_blocked": result.mutations_blocked,
+                        "mutations_tested": result.mutations_tested,
+                        "benign_passed": result.benign_passed,
+                        "benign_total": len(benign_tasks),
+                    },
                 },
                 generation=generation,
             )

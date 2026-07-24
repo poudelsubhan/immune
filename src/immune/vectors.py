@@ -126,6 +126,31 @@ class SignatureStore:
         scored.sort(key=lambda r: r["score"], reverse=True)
         return scored[:top_k]
 
+    def reset(self) -> None:
+        """Drop every stored signature and start the collection empty.
+
+        The collection lives in the Docker volume and persists across runs,
+        while search() only ever inspects its top_k hits. Vectors left behind
+        by earlier runs therefore crowd out the neighbor a fresh run actually
+        needs, and similarity scores drift from one run to the next — which is
+        enough on its own to make a run non-reproducible.
+        """
+        _fallback_index.clear()
+        if not self.live:
+            return
+        try:
+            from actian_vectorai import Distance, VectorParams
+
+            try:
+                self._client.collections.delete(COLLECTION)
+            except Exception:
+                pass  # nothing to drop, or this build exposes no delete
+            self._client.collections.create(
+                COLLECTION, vectors_config=VectorParams(size=DIMENSION, distance=Distance.Cosine)
+            )
+        except Exception:
+            self.live = False
+
     def health(self) -> dict[str, Any]:
         if self.live:
             try:

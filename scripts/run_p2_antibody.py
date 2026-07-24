@@ -38,9 +38,17 @@ def main() -> None:
 
     print(f"\n[p2] breached: {summary['breached']}")
     for candidate in summary["candidates"]:
-        verdict = "PASS" if candidate["attack_blocked"] and candidate["benign_passed"] else "REJECTED"
+        verdict = (
+            "PASS"
+            if candidate["attack_blocked"] and candidate["mutations_blocked"] and candidate["benign_passed"]
+            else "REJECTED"
+        )
         print(f"  attempt {candidate['attempt']}: {candidate['patch_name']} -> {verdict}")
         print(f"    attack replay blocked: {candidate['attack_blocked']}")
+        print(f"    mutations blocked:     {candidate['mutations_blocked']} "
+              f"({candidate['mutations_tested'] - len(candidate['mutation_failures'])}/{candidate['mutations_tested']})")
+        for failure in candidate["mutation_failures"]:
+            print(f"      - missed {failure['mutation']}")
         print(f"    benign suite passed:   {candidate['benign_passed']}")
         for failure in candidate["benign_failures"]:
             print(f"      - {failure['id']}: {failure['why']}")

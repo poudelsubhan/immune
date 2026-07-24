@@ -28,16 +28,20 @@ EVENT_TYPES = {
     "injection",
     "sensitive_action_fired",
     "breach_detected",
+    "payment_authorized",
     "action_blocked",
+    "variant_flagged",
     "synthesis_start",
     "antibody_candidate",
     "gate_attack_replay",
+    "gate_mutation_suite",
     "gate_benign_suite",
     "antibody_rejected",
     "antibody_promoted",
     "variant_blocked_by_neighbor",
     "quarantine_broadcast",
     "peer_immunized",
+    "generation_metrics",
     "generation_end",
 }
 
@@ -71,6 +75,23 @@ def read_events(path: Path | str = EVENTS_PATH) -> Iterator[dict[str, Any]]:
             yield json.loads(line)
 
 
-def reset_events(path: Path | str = EVENTS_PATH) -> None:
-    """Truncate the event log. Use at the start of a fresh recorded run — never mid-run."""
-    Path(path).write_text("", encoding="utf-8")
+def reset_events(path: Path | str = EVENTS_PATH, *, archive: bool = True) -> Path | None:
+    """Start a fresh log, preserving whatever was already there.
+
+    The recorded run a demo is scripted against lives only in this file, and
+    it is not tracked by git — so truncating in place is unrecoverable. Any
+    existing contents are copied into events_archive/ first, and the archive
+    path is returned so the caller can say where the old run went.
+    """
+    p = Path(path)
+    archived: Path | None = None
+    if archive and p.exists() and p.stat().st_size > 0:
+        archive_dir = p.parent / "events_archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        n = 1
+        while (candidate := archive_dir / f"{p.stem}-{n:03d}{p.suffix}").exists():
+            n += 1
+        candidate.write_text(p.read_text(encoding="utf-8"), encoding="utf-8")
+        archived = candidate
+    p.write_text("", encoding="utf-8")
+    return archived

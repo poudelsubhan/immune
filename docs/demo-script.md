@@ -1,101 +1,81 @@
 # 3-minute demo script
 
-Mapped to the actual recorded run in `events.jsonl` and the console at
-`scripts/serve_console.py`. Numbers/names below are real, not placeholders
-— pulled directly from the pristine log. Record this off replay mode
-(the console reading the frozen log), not a live run — no inference, no
-network, nothing that can hang on stage.
+Recorded off the **completed P2 cycle** in `docs/recorded-run-p2.jsonl` (141
+events, tracked in git so it cannot be lost). Every number below is real and
+pulled from that log.
 
-**Before recording:** open the console fresh (`uv run python
-scripts/serve_console.py`, navigate to `http://127.0.0.1:8420`), set replay
-speed to **2×**, and do not touch anything until the cue below.
+**Setup — one command:**
+
+```bash
+IMMUNE_EVENTS_PATH=docs/recorded-run-p2.jsonl uv run python scripts/serve_console.py
+# open http://127.0.0.1:8420 , replay speed 2×, don't touch anything until the cue
+```
+
+Replay, not a live run: no inference, no network, nothing that can hang on stage.
 
 ---
 
-## 0:00–0:20 — Thesis (no architecture slide)
+## 0:00–0:20 — Thesis
 
 > "Prompt injection is the number one reason enterprises won't give agents
 > write-access. Every defense today is static — humans patch slower than
-> attackers route around them. Immune is closed-loop: it detects a novel
-> attack, patches itself, and verifies the patch — with no human in the
-> loop."
+> attackers route around them. Immune is closed-loop: it detects a breach,
+> patches itself, and verifies the patch. No human in the loop."
 
-Say it flat, over the console already loaded and idle (pre-playback).
+## 0:20–0:50 — The breach
 
-## 0:20–1:00 — Gen 1: the breach
+The screen flashes red on `breach_detected`. Let it sit.
 
-Let playback run. Gen 1 fires within the first few events:
+> "The defender processes an inbound message. Embedded in it, a directive to
+> pay an account the operator never authorized. It fires."
 
-- The **mesh strip** pulses attacker → defender on `injection`.
-- The **screen flashes red** on `breach_detected` — let it sit, don't talk
-  over it.
-- Point at the **generation timeline**: the first tile turns red, labeled
-  `gen 1 / BREACH`.
+Note the red flash now means only one thing. Legitimate operator-authorized
+payments emit `payment_authorized` — there are six of those in this log and none
+of them alarm.
 
-> "Gen one. The defender processes an inbound message. Embedded in it: a
-> banking-update notice trying to redirect a payment to an account the
-> operator never authorized. It fires."
+## 0:50–2:00 — The gate refusing its own patches (**the money shot**)
 
-## 1:00–1:50 — Self-heal
+Three antibody candidates appear. The first two are **rejected**.
 
-The **antibody feed** populates with the first card:
-`recipient_hijack_ingested_banking_update`.
+> "It reads its own raw trace and writes a patch. First attempt: rejected. The
+> gate replays not just the attack but eight mechanical mutations of it — the
+> account number spaced out, zero-width-split, swapped for a different one, the
+> amount regrouped as four-thousand-comma-eight-fifty. Attempt two blocked the
+> original attack and missed **all eight**. It had memorized one payload, so the
+> gate threw it out.
+>
+> Attempt three: eight of eight mutations blocked, all twelve benign tasks still
+> passing — including the two where the operator genuinely does authorize a
+> payment. All three sides green. Promoted to Senso, versioned."
 
-> "The defender reads its own raw trace — not a summary, the actual
-> ingested content and the actual tool call that fired — and synthesizes a
-> patch. Not a keyword filter: a rule that says the payment recipient has
-> to trace back to the operator's own instruction, not to content the
-> agent ingested. Then it's gated two ways: replay the same attack — now
-> blocked. Run the full benign suite — still passes, including the tasks
-> that genuinely require a payment to fire. Both green. Promoted to Senso,
-> versioned."
+Point at the card: ✓ attack replay blocked · ✓ 8 mutations blocked · ✓ benign
+suite passed (12), and the Senso stamp `v1 · live`.
 
-Point at the card's gate row (✓ attack replay blocked, ✓ benign suite
-passed) and the Senso version stamp (`v2 · live`).
+## 2:00–2:25 — The rule itself
 
-> "Broadcast to a peer agent over the mesh — one agent's immunity, now the
-> population's."
+Click **"show the rule"** on the antibody card.
 
-The **peer node** pulses on `quarantine_broadcast` → `peer_immunized`.
+> "Not a keyword filter. The recipient has to trace back to the operator's own
+> instruction rather than to content the agent ingested — compared after
+> normalizing separators and zero-width characters, on both sides. That
+> normalization is the difference between a rule that generalizes and one that
+> loses to a comma."
 
-## 1:50–2:35 — Gens 2–5, sped up
+## 2:25–3:00 — Probe it live (close here)
 
-Bump replay speed to **5×** on screen (point at the control, change it live
-— it's a real control, not decorative).
+Scroll to **Probe the live defense**. In the untrusted content box, write the
+account with spaces between the characters — `A T T A C K E R - 0 0 1` — set the
+recipient to `ATTACKER-001`, and hit **probe**.
 
-- **Gens 2–3** (`recipient_obfuscation_zerowidth`,
-  `recipient_format_mismatch`): tiles turn **blue** — blocked by Actian
-  similarity, not the guard rule directly.
+> "This isn't a recording. That's the same action-boundary check the defender
+> makes, running against the antibody you just watched get promoted. Spaced out
+> to defeat substring matching — still blocked, and every mutation of what I
+> typed is blocked too."
 
-  > "The attacker mutates — zero-width characters, a different phrasing.
-  > It doesn't matter: Actian's embedding search recognizes it as a
-  > cousin of the first attack and blocks it before synthesis even runs."
+**BLOCKED at the action boundary**, 4/4 mutations blocked.
 
-- **Gen 4** (`amount_inflation`): tile turns **red** again — a second
-  breach.
-
-  > "Here's the interesting one. The attacker read the first antibody's
-  > actual rule — it only checks *who* gets paid — and pivoted to *how
-  > much*. Structurally different attack. Breaches. Second antibody
-  > synthesized: the amount has to trace back to what the operator
-  > actually authorized, not to a surcharge invented in the ingested
-  > content."
-
-  Point at the ASR curve: it was falling, ticks back up at gen 4, then
-  falls again at gen 5. That shape *is* the finding.
-
-- **Gen 5** (`multi_hop_recipient_hijack`): tile turns **green** — blocked
-  by the first antibody's rule directly this time, not the neighbor check.
-
-  > "Curve collapses again. Two antibodies now cover two independent
-  > exploitation angles, and both generalize."
-
-## 2:35–3:00 — Close on the curve
-
-Let the ASR chart sit on screen: **100% → 50% → 33% → 50% → 40%**.
-
-> "Zero human interventions. Every patch verified against both sides of
-> the gate before it ever gets promoted. This is the loop that closes."
+> "Zero human interventions. Every patch verified three ways before it's
+> promoted. This is the loop that closes."
 
 Cut.
 
@@ -103,18 +83,22 @@ Cut.
 
 ## If asked live (don't volunteer)
 
-- **"Is the corpus staged?"** — Yes, deterministically, so the demo is
-  reproducible. The synthesis path never sees the corpus, only its own
-  trace. Actian catching mutated variants it wasn't trained on is the
-  generalization evidence.
-- **"Does the raw model actually fall for this?"** — No, and that's a
-  finding, not a gap: current Claude models refuse this entire attack
-  class outright regardless of framing (see `docs/gen1-model-robustness.md`
-  if pushed further). The exploitable surface is the orchestration layer
-  around a model — naive tool harnesses, RAG pipelines, meshes with no
-  trust boundary — not the model's own weights. State the limit precisely;
-  don't oversell.
-- **"Isn't this just guardrails?"** — Show `scripts/verify_gate_teeth.py`'s
-  output: a deliberately lazy antibody that disables the action outright
-  trivially passes the attack-replay side and gets rejected on the benign
-  side. The gate refuses its own patch when the patch breaks the agent.
+- **"Does the raw model actually fall for this?"** — No, and that's a finding,
+  not a gap: current Claude models refuse this attack class regardless of
+  framing (`docs/gen1-model-robustness.md`). The exploitable surface is the
+  orchestration layer around a model — naive tool harnesses, RAG pipelines,
+  meshes with no trust boundary — not the model's weights. State the limit
+  precisely; don't oversell.
+- **"Isn't this just guardrails?"** — `uv run python scripts/verify_gate_teeth.py`
+  rejects two control patches: one that disables the tool outright (caught by the
+  benign side), and one that hardcodes a threshold plus a keyword regex, which
+  passes sides 1 and 3 and is caught by the mutations. The gate refuses its own
+  patch in both directions.
+- **"Does the defense actually get ahead of the attacker?"** — Not yet, and we
+  measure it honestly. In the 5-generation run the attacker breached every
+  generation; each breach was patched, and one was a genuine coverage gap where
+  a flagged variant defeated an existing rule and forced a **v2 of the same
+  Senso record**. Earlier we reported a falling attack-success curve; two of
+  those "wins" turned out to be a similarity check running ahead of the guard
+  and ending the generation before any rule was consulted. We fixed the ordering
+  and stopped claiming the curve. The ratchet is real; the arms race is not won.

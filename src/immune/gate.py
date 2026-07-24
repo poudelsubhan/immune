@@ -20,7 +20,7 @@ from typing import Any
 from .antibody import Guard
 from .defender import Defender, simulate_attack
 from .events import append_event
-from .tools import World
+from .tools import World, attack_id as get_attack_id
 
 
 @dataclass
@@ -94,7 +94,7 @@ def run_gate(
     append_event(
         "gate_attack_replay",
         {
-            "attack_id": attack["id"],
+            "attack_id": get_attack_id(attack, generation),
             "antibody": antibody["signature"],
             "blocked": attack_blocked,
             "detail": attack_detail,

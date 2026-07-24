@@ -15,7 +15,7 @@ from typing import Any
 from .antibody import Guard
 from .events import append_event
 from .llm import call_agent_llm
-from .tools import SensitiveActionFired, World, fetch_content, send_payment
+from .tools import SensitiveActionFired, World, attack_id as get_attack_id, fetch_content, send_payment
 
 MAX_HOPS = 3
 
@@ -173,8 +173,7 @@ def simulate_attack(
         append_event("ingest", {"source": attack["fetch_key"], "content": fetched}, generation=generation)
         hops.append(fetched)
 
-    attack_id = attack.get("id", f"gen{generation}-{attack['family']}")
-    append_event("injection", {"attack_id": attack_id, "family": attack["family"]}, generation=generation)
+    append_event("injection", {"attack_id": get_attack_id(attack, generation), "family": attack["family"]}, generation=generation)
 
     call = {"tool": attack.get("target_action", "send_payment"), "arguments": attack["payment_request"]}
     trace: dict[str, Any] = {

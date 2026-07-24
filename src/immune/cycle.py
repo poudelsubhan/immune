@@ -13,6 +13,7 @@ from .defender import simulate_attack
 from .events import append_event
 from .gate import run_gate
 from .store import AntibodyStore
+from .tools import attack_id as get_attack_id
 from .tools import World
 
 MAX_SYNTHESIS_ATTEMPTS = 3  # one attempt plus the two retries the plan allows
@@ -32,20 +33,21 @@ def run_cycle(
     Returns a summary dict: whether the attack breached, whether an antibody
     was promoted, and the record of every candidate the gate saw.
     """
+    attack_id = get_attack_id(attack, generation)
     promoted = list(promoted or [])
     guard = Guard(promoted) if promoted else None
 
     breach = simulate_attack(attack, world, guard=guard, generation=generation)
     if not breach["breach"]:
         return {
-            "attack_id": attack["id"],
+            "attack_id": attack_id,
             "breached": False,
             "blocked_by": breach.get("block_reason"),
             "promoted": None,
             "candidates": [],
         }
 
-    append_event("synthesis_start", {"attack_id": attack["id"], "family": attack["family"]}, generation=generation)
+    append_event("synthesis_start", {"attack_id": attack_id, "family": attack["family"]}, generation=generation)
 
     candidates: list[dict[str, Any]] = []
     prior_failure: str | None = None
@@ -90,7 +92,7 @@ def run_cycle(
                 generation=generation,
             )
             return {
-                "attack_id": attack["id"],
+                "attack_id": attack_id,
                 "breached": True,
                 "promoted": antibody,
                 "senso": record,
@@ -104,4 +106,4 @@ def run_cycle(
             generation=generation,
         )
 
-    return {"attack_id": attack["id"], "breached": True, "promoted": None, "candidates": candidates}
+    return {"attack_id": attack_id, "breached": True, "promoted": None, "candidates": candidates}

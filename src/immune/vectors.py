@@ -4,10 +4,16 @@ Embed every attack on arrival; before full synthesis, similarity-search this
 store. A near neighbor with an existing antibody means "we've seen a cousin
 of this" — mutated variants get blocked without a fresh synthesis cycle.
 
-VectorAI DB is self-hosted (Docker, no account/API key — see docs/sponsor-notes.md).
-Falls back to an in-memory cosine-similarity index over a crude character
-n-gram embedding if the local instance is unreachable, so a Docker hiccup
-never stalls the loop.
+VectorAI DB is self-hosted (Docker, no account/API key — see
+docs/sponsor-notes.md) and does real storage and nearest-neighbor search
+over whatever vectors we hand it — that part is genuinely live. No vector
+database generates its own embeddings, though; that's always a separate
+concern. Ours are real OpenAI embeddings (text-embedding-3-small) — cheap,
+genuinely semantic, and able to tell "recipient hijack" from "amount
+inflation" apart even when both are styled as near-identical invoice
+emails, which a hand-rolled lexical embedding could not do. Falls back to
+an in-memory cosine-similarity index if the local Actian instance is
+unreachable, so a Docker hiccup never stalls the loop.
 """
 
 from __future__ import annotations
@@ -15,28 +21,52 @@ from __future__ import annotations
 import hashlib
 import math
 import os
-from collections import Counter
 from typing import Any
 
-DIMENSION = 128
+import requests
+
+from .cache import disk_cache
+
+DIMENSION = 512  # text-embedding-3-small supports shortening via `dimensions`
 COLLECTION = "attack_signatures"
+OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
 
 _fallback_index: dict[str, tuple[list[float], dict[str, Any]]] = {}  # attack_id -> (vector, payload)
 
 
-def embed_text(text: str, dimension: int = DIMENSION) -> list[float]:
-    """Crude, dependency-free embedding: hash character trigrams into a
-    fixed-size bag-of-features vector, L2-normalized. Good enough to make
-    near-duplicate/mutated payloads land close together; not a real semantic
-    embedding. Swap for a real embedding model if time allows.
+@disk_cache
+def _embed_via_openai(text: str) -> list[float]:
+    api_key = os.environ["OPENAI_API_KEY"]
+    resp = requests.post(
+        OPENAI_EMBEDDINGS_URL,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={"model": "text-embedding-3-small", "input": text, "dimensions": DIMENSION},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()["data"][0]["embedding"]
+
+
+def _fallback_embed(text: str) -> list[float]:
+    """Only used if OPENAI_API_KEY is unset or the API call fails — a crude
+    hashed bag-of-words, purely to keep the loop alive, not to discriminate
+    well. See docs/sponsor-notes.md for why this is a known limitation.
     """
-    vec = [0.0] * dimension
-    trigrams = [text[i : i + 3] for i in range(max(len(text) - 2, 1))]
-    for gram, count in Counter(trigrams).items():
-        idx = int(hashlib.sha256(gram.encode("utf-8")).hexdigest(), 16) % dimension
-        vec[idx] += count
+    vec = [0.0] * DIMENSION
+    for word in text.lower().split():
+        idx = int(hashlib.sha256(word.encode("utf-8")).hexdigest(), 16) % DIMENSION
+        vec[idx] += 1.0
     norm = math.sqrt(sum(v * v for v in vec)) or 1.0
     return [v / norm for v in vec]
+
+
+def embed_text(text: str) -> list[float]:
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            return _embed_via_openai(text)
+        except Exception:
+            pass  # never let an embedding-provider outage stall the loop
+    return _fallback_embed(text)
 
 
 def _cosine(a: list[float], b: list[float]) -> float:

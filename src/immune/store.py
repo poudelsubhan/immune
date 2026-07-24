@@ -73,6 +73,14 @@ class AntibodyStore:
                 return node["kb_node_id"]
         raise ValueError(f"kb_node_id not found for content_id={content_id}")
 
+    def _find_node_by_title(self, title: str) -> str | None:
+        resp = requests.get(f"{self.base_url}/org/kb/my-files", headers=self._headers(), timeout=10)
+        resp.raise_for_status()
+        for node in resp.json().get("nodes", []):
+            if node.get("name") == title:
+                return node["kb_node_id"]
+        return None
+
     def promote(self, signature: str, antibody: dict[str, Any]) -> dict[str, Any]:
         """Write/update an antibody record, keyed by attack signature. Returns
         {"node_id"|"local_id", "version", "live": bool}.
@@ -82,23 +90,33 @@ class AntibodyStore:
         if self.live:
             try:
                 node_id = self._index.get(signature)
+                title = f"antibody:{signature}"
                 if node_id is None:
-                    payload = {
-                        "title": f"antibody:{signature}",
-                        "summary": _summarize(antibody),
-                        "text": body_text,
-                    }
+                    payload = {"title": title, "summary": _summarize(antibody), "text": body_text}
                     if self.kb_folder_id:
                         payload["kb_folder_node_id"] = self.kb_folder_id
                     resp = requests.post(f"{self.base_url}/org/kb/raw", headers=self._headers(), json=payload, timeout=10)
-                    resp.raise_for_status()
-                    # POST returns the content id; node ops need the wrapper kb_node_id,
-                    # which only shows up via the my-files/children listing.
-                    content_id = resp.json()["id"]
-                    node_id = self._resolve_kb_node_id(content_id)
-                    self._index[signature] = node_id
-                    self._save_json(_INDEX_PATH, self._index)
-                    version = 1
+                    if resp.status_code == 409 and "duplicate content" in resp.text:
+                        # Senso dedupes content org-wide, not just per node — this
+                        # exact antibody text already exists (e.g. an earlier test
+                        # run created it). Adopt that node instead of failing.
+                        node_id = self._find_node_by_title(title)
+                        if node_id is None:
+                            resp.raise_for_status()  # couldn't find it either — surface the real 409
+                        self._index[signature] = node_id
+                        self._save_json(_INDEX_PATH, self._index)
+                        get_resp = requests.get(f"{self.base_url}/org/kb/nodes/{node_id}/content", headers=self._headers(), timeout=10)
+                        get_resp.raise_for_status()
+                        version = get_resp.json().get("version_num", "unknown")
+                    else:
+                        resp.raise_for_status()
+                        # POST returns the content id; node ops need the wrapper
+                        # kb_node_id, which only shows up via the my-files listing.
+                        content_id = resp.json()["id"]
+                        node_id = self._resolve_kb_node_id(content_id)
+                        self._index[signature] = node_id
+                        self._save_json(_INDEX_PATH, self._index)
+                        version = 1
                 else:
                     resp = requests.put(
                         f"{self.base_url}/org/kb/nodes/{node_id}/raw",
@@ -106,8 +124,18 @@ class AntibodyStore:
                         json={"title": f"antibody:{signature}", "text": body_text},
                         timeout=10,
                     )
-                    resp.raise_for_status()
-                    version = resp.json().get("version_num", "unknown")
+                    if resp.status_code == 409 and "duplicate content" in resp.text:
+                        # Not a failure — Senso is telling us this exact text is
+                        # already the current version (a re-promote of an
+                        # unchanged antibody, e.g. a cached replay). The record
+                        # is correct as-is; fetch its version rather than
+                        # treating "nothing to do" as a sponsor outage.
+                        get_resp = requests.get(f"{self.base_url}/org/kb/nodes/{node_id}/content", headers=self._headers(), timeout=10)
+                        get_resp.raise_for_status()
+                        version = get_resp.json().get("version_num", "unknown")
+                    else:
+                        resp.raise_for_status()
+                        version = resp.json().get("version_num", "unknown")
                 return {"node_id": node_id, "version": version, "live": True}
             except Exception as exc:  # noqa: BLE001 — never let a sponsor outage kill the loop
                 # Falling back is fine; falling back *silently* is not. A run

@@ -22,7 +22,14 @@ from .store import AntibodyStore
 from .tools import World
 from .vectors import SignatureStore
 
-NEIGHBOR_THRESHOLD = 0.35
+# Calibrated against real OpenAI embeddings on real attacker-generated text:
+# genuine paraphrases of the same exploit (same field targeted) scored
+# 0.72-0.76 cosine similarity; a structurally different attack (different
+# field targeted, same invoice-fraud styling and domain vocabulary) scored
+# 0.69 — closer than a synthetic test suggested, since same-domain content
+# is inherently semantically similar regardless of which field is attacked.
+# The threshold sits just above the different-field score.
+NEIGHBOR_THRESHOLD = 0.71
 
 
 def _attack_text(attack: dict[str, Any]) -> str:
@@ -84,7 +91,7 @@ def run_population(
     promoted: list[dict[str, Any]] = []
     promoted_signatures: set[str] = set()
     history: list[dict[str, Any]] = []
-    defender_id = defender_mesh.whoami()["id"] if defender_mesh and defender_mesh.live else None
+    mesh_ready = bool(defender_mesh and peer_mesh and defender_mesh.whoami() and peer_mesh.whoami())
 
     for generation in range(1, n_generations + 1):
         attack = mutate_attack(promoted, history, generation=generation)
@@ -110,18 +117,16 @@ def run_population(
                 # neighbors resolve to a signature that's actually in force
                 signatures.add(f"gen{generation}", _attack_text(attack),
                                 {"signature": summary["promoted"]["signature"], "family": attack["family"]})
-                if defender_mesh and peer_mesh and defender_id:
-                    broadcast_quarantine(defender_mesh, peer_mesh.peer_id, peer_mesh.handle, summary["promoted"])
-                    room = defender_mesh.create_room()  # note: mesh.py's fallback returns 'local-room' consistently
+                if mesh_ready:
+                    room = broadcast_quarantine(defender_mesh, peer_mesh.peer_id, peer_mesh.handle, summary["promoted"])
                     confirm_immunized(peer_mesh, room, summary["promoted"]["signature"])
             record = {
                 "generation": generation,
                 "family": attack["family"],
-                "breached": summary["breached"] and not summary["promoted"],
+                "breached": summary["breached"],  # a breach that gets patched still counts as a breach this generation
                 "blocked_by": summary.get("blocked_by"),
                 "promoted": summary["promoted"]["signature"] if summary["promoted"] else None,
             }
-            record["breached"] = summary["breached"]  # a breach that gets patched still counts as a breach this gen
 
         append_event("generation_end", record, generation=generation)
         history.append(record)

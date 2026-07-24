@@ -29,6 +29,13 @@ def build_world(corpus: dict[str, Any], benign_resources: dict[str, str] | None 
     return world
 
 
+def attack_id(attack: dict[str, Any], generation: int | None) -> str:
+    """Corpus attacks carry a stable id; attacker-mutated attacks don't, so
+    they're identified by generation instead. One place to make that call.
+    """
+    return attack.get("id", f"gen{generation}-{attack['family']}")
+
+
 def fetch_content(source: str, world: World) -> str:
     """Fetch a second-hop resource by exact key. Unknown keys return a
     plain 404-style string rather than raising, matching what a real fetch

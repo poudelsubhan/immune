@@ -10,10 +10,6 @@ the attack, and against a human-authored suite of legitimate work. Only if all
 three come back green is it promoted, versioned and broadcast to peer agents. No
 human in the loop.
 
-> **Invariant: no antibody enters the guard without blocking the attack, blocking
-> every mutation of that attack, and leaving the agent's real job intact. The
-> verification gate is the product.**
-
 ![The sword-and-shield chart across five generations: the attacker defeats 0, 1, 2, 3 then 4 verified defenses while the defender's provably-blocked variant count climbs 9, 18, 22, 30, 38](docs/assets/coevolution-hero.jpg)
 
 Built for the Self-Evolving Agents Hack, Fri Jul 24.

@@ -1,0 +1,139 @@
+"""Antibody library — governed, versioned records, backed by Senso.
+
+Senso's raw-content API versions automatically: the first promotion of a
+signature POSTs a new KB node, every subsequent promotion of the *same*
+signature PUTs to that node and Senso mints a new version. That version
+number becomes the antibody's generation stamp in the console.
+
+If SENSO_API_KEY is unset or the API is unreachable, everything falls back
+to an in-memory/local-file store so the self-evolution loop never stalls on
+a sponsor outage (build-plan invariant #4).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+import requests
+
+SENSO_BASE_URL = os.environ.get("SENSO_BASE_URL", "https://apiv2.senso.ai/api/v1")
+SENSO_API_KEY = os.environ.get("SENSO_API_KEY")
+SENSO_KB_FOLDER_ID = os.environ.get("SENSO_KB_FOLDER_ID")  # optional; None = org root
+
+_INDEX_PATH = Path(os.environ.get("IMMUNE_STORE_INDEX", "data/senso_index.json"))
+_FALLBACK_PATH = Path(os.environ.get("IMMUNE_STORE_FALLBACK", "data/senso_fallback.json"))
+
+
+class AntibodyStore:
+    """3 methods: promote, get, search. Everything else is Senso's problem."""
+
+    def __init__(self) -> None:
+        self.live = bool(SENSO_API_KEY)
+        self._index: dict[str, str] = self._load_json(_INDEX_PATH, default={})
+        self._fallback: dict[str, list[dict]] = self._load_json(_FALLBACK_PATH, default={})
+
+    @staticmethod
+    def _load_json(path: Path, *, default: Any) -> Any:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+        return default
+
+    def _save_json(self, path: Path, data: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def _headers(self) -> dict[str, str]:
+        return {"X-API-Key": SENSO_API_KEY or "", "Content-Type": "application/json"}
+
+    def _resolve_kb_node_id(self, content_id: str) -> str:
+        """POST /org/kb/raw only returns the content id; node-scoped endpoints
+        (GET/PUT/PATCH .../nodes/{id}/...) need the wrapper kb_node_id, which
+        only appears in the my-files/children listing. Look it up once here.
+        """
+        resp = requests.get(f"{SENSO_BASE_URL}/org/kb/my-files", headers=self._headers(), timeout=10)
+        resp.raise_for_status()
+        for node in resp.json().get("nodes", []):
+            if node.get("content_id") == content_id:
+                return node["kb_node_id"]
+        raise ValueError(f"kb_node_id not found for content_id={content_id}")
+
+    def promote(self, signature: str, antibody: dict[str, Any]) -> dict[str, Any]:
+        """Write/update an antibody record, keyed by attack signature. Returns
+        {"node_id"|"local_id", "version", "live": bool}.
+        """
+        body_text = json.dumps(antibody, indent=2)
+
+        if self.live:
+            try:
+                node_id = self._index.get(signature)
+                if node_id is None:
+                    payload = {
+                        "title": f"antibody:{signature}",
+                        "summary": antibody.get("detection_test", "")[:200],
+                        "text": body_text,
+                    }
+                    if SENSO_KB_FOLDER_ID:
+                        payload["kb_folder_node_id"] = SENSO_KB_FOLDER_ID
+                    resp = requests.post(f"{SENSO_BASE_URL}/org/kb/raw", headers=self._headers(), json=payload, timeout=10)
+                    resp.raise_for_status()
+                    # POST returns the content id; node ops need the wrapper kb_node_id,
+                    # which only shows up via the my-files/children listing.
+                    content_id = resp.json()["id"]
+                    node_id = self._resolve_kb_node_id(content_id)
+                    self._index[signature] = node_id
+                    self._save_json(_INDEX_PATH, self._index)
+                    version = 1
+                else:
+                    resp = requests.put(
+                        f"{SENSO_BASE_URL}/org/kb/nodes/{node_id}/raw",
+                        headers=self._headers(),
+                        json={"title": f"antibody:{signature}", "text": body_text},
+                        timeout=10,
+                    )
+                    resp.raise_for_status()
+                    version = resp.json().get("version_num", "unknown")
+                return {"node_id": node_id, "version": version, "live": True}
+            except requests.RequestException:
+                pass  # fall through to local fallback — never let a sponsor outage kill the loop
+
+        history = self._fallback.setdefault(signature, [])
+        version = len(history) + 1
+        history.append(antibody)
+        self._save_json(_FALLBACK_PATH, self._fallback)
+        return {"node_id": f"local:{signature}", "version": version, "live": False}
+
+    def get(self, signature: str, version: int | None = None) -> dict[str, Any] | None:
+        if self.live and signature in self._index:
+            node_id = self._index[signature]
+            params = {"version": version} if version else {}
+            try:
+                resp = requests.get(f"{SENSO_BASE_URL}/org/kb/nodes/{node_id}/content", headers=self._headers(), params=params, timeout=10)
+                resp.raise_for_status()
+                return json.loads(resp.json()["text"])
+            except (requests.RequestException, KeyError, json.JSONDecodeError):
+                pass
+
+        history = self._fallback.get(signature, [])
+        if not history:
+            return None
+        idx = (version - 1) if version else -1
+        return history[idx]
+
+    def search(self, query: str) -> list[dict[str, Any]]:
+        if self.live:
+            try:
+                resp = requests.post(f"{SENSO_BASE_URL}/org/search", headers=self._headers(), json={"query": query}, timeout=10)
+                resp.raise_for_status()
+                return resp.json().get("results", [])
+            except requests.RequestException:
+                pass
+
+        query_lower = query.lower()
+        return [
+            {"signature": sig, "antibody": versions[-1]}
+            for sig, versions in self._fallback.items()
+            if query_lower in json.dumps(versions[-1]).lower()
+        ]

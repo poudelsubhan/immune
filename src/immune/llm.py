@@ -63,6 +63,12 @@ def call_agent_llm(system_prompt: str, user_prompt: str, *, model: str = DEFAULT
         model,
         "--system-prompt",
         system_prompt,
+        # Without --bare (which needs an ANTHROPIC_API_KEY we don't have), this
+        # subprocess otherwise inherits this very session's hooks — including
+        # the UserPromptSubmit nudge toward the Zero skill — bleeding
+        # irrelevant meta-content into the agent-under-test's reasoning.
+        "--settings",
+        '{"hooks":{}}',
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:

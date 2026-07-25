@@ -21,6 +21,13 @@ from .cache import disk_cache
 
 DEFAULT_MODEL = "sonnet"
 
+#: Synthesis prompts carry a full breach trace plus the antibody schema, and
+#: occasionally run long enough to blow a short deadline. A timeout here kills
+#: an unattended multi-generation run outright, so the limit is generous and a
+#: timeout is retried once before it's allowed to be fatal.
+CALL_TIMEOUT = int(os.environ.get("IMMUNE_LLM_TIMEOUT", "600"))
+CALL_ATTEMPTS = int(os.environ.get("IMMUNE_LLM_ATTEMPTS", "2"))
+
 #: Schema for an agent-under-test's turn: reason, optionally call tools, respond.
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -84,7 +91,13 @@ def call_agent_llm(
         system_prompt,
         *_auth_flags(),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    for attempt in range(1, CALL_ATTEMPTS + 1):
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=CALL_TIMEOUT)
+            break
+        except subprocess.TimeoutExpired:
+            if attempt == CALL_ATTEMPTS:
+                raise
     if proc.returncode != 0:
         raise RuntimeError(f"claude CLI failed (exit {proc.returncode}): {proc.stderr[:2000]}")
 

@@ -141,7 +141,11 @@ FIELD_SCHEMA = {
             "description": "arg: a tool call argument (needs arg_name). task_instruction: the operator's trusted instruction. ingested_content: all untrusted content the agent ingested, joined. literal: a fixed value you supply.",
         },
         "arg_name": {"type": "string", "description": "Required when source=arg, e.g. 'to' or 'amount'."},
-        "literal_value": {"type": ["string", "number"], "description": "Required when source=literal. For matches_regex on the right-hand side, put the regex pattern here."},
+        # anyOf rather than "type": ["string", "number"] — the claude CLI validates
+        # this schema in ajv strict mode, which rejects the union-type spelling
+        # outright ("use allowUnionTypes"). Same accepted values, and synthesis
+        # fails hard rather than degrading when it's wrong.
+        "literal_value": {"anyOf": [{"type": "string"}, {"type": "number"}], "description": "Required when source=literal. For matches_regex on the right-hand side, put the regex pattern here."},
         "normalize": {
             "type": "array",
             "items": {"type": "string", "enum": list(NORMALIZATIONS)},

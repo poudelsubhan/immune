@@ -20,3 +20,4 @@ data/senso_index.json
 data/senso_fallback.json
 
 events_archive/
+events_long.jsonl

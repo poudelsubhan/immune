@@ -21,3 +21,15 @@ data/senso_fallback.json
 
 events_archive/
 events_long.jsonl
+
+# Internal/proprietary docs — do not publish
+CLAUDE.md
+AGENTS.md
+.claude/
+plan*.md
+Plan*.md
+PLAN*.md
+phase*.md
+Phase*.md
+PHASE*.md
+docs/phase-*-summary.md
